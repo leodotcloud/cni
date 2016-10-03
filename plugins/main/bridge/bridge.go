@@ -18,6 +18,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"net"
 	"runtime"
 	"syscall"
@@ -29,6 +30,7 @@ import (
 	"github.com/containernetworking/cni/pkg/types"
 	"github.com/containernetworking/cni/pkg/utils"
 	"github.com/vishvananda/netlink"
+	"github.com/Sirupsen/logrus"
 )
 
 const defaultBrName = "cni0"
@@ -133,14 +135,17 @@ func ensureBridge(brName string, mtu int) (*netlink.Bridge, error) {
 func setupVeth(netns ns.NetNS, br *netlink.Bridge, ifName string, mtu int, hairpinMode bool) error {
 	var hostVethName string
 
+	logrus.Debugf("setupVeth: netns=%+v br=%+v ifName=%v mtu=%v hairpinMode=%v", netns, br, ifName, mtu, hairpinMode)
 	err := netns.Do(func(hostNS ns.NetNS) error {
 		// create the veth pair in the container and move host end into host netns
 		hostVeth, _, err := ip.SetupVeth(ifName, mtu, hostNS)
 		if err != nil {
+			logrus.Errorf("couldn't setup veth: %v", err)
 			return err
 		}
 
 		hostVethName = hostVeth.Attrs().Name
+		logrus.Debugf("hostVethName=%v", hostVethName)
 		return nil
 	})
 	if err != nil {
@@ -150,19 +155,26 @@ func setupVeth(netns ns.NetNS, br *netlink.Bridge, ifName string, mtu int, hairp
 	// need to lookup hostVeth again as its index has changed during ns move
 	hostVeth, err := netlink.LinkByName(hostVethName)
 	if err != nil {
-		return fmt.Errorf("failed to lookup %q: %v", hostVethName, err)
+		errMsg := fmt.Sprintf("failed to lookup %q: %v", hostVethName, err)
+		logrus.Errorf(errMsg)
+		return errors.New(errMsg)
 	}
 
 	// connect host veth end to the bridge
 	if err = netlink.LinkSetMaster(hostVeth, br); err != nil {
-		return fmt.Errorf("failed to connect %q to bridge %v: %v", hostVethName, br.Attrs().Name, err)
+		errMsg := fmt.Sprintf("failed to connect %q to bridge %v: %v", hostVethName, br.Attrs().Name, err)
+		logrus.Errorf(errMsg)
+		return errors.New(errMsg)
 	}
 
 	// set hairpin mode
 	if err = netlink.LinkSetHairpin(hostVeth, hairpinMode); err != nil {
-		return fmt.Errorf("failed to setup hairpin mode for %v: %v", hostVethName, err)
+		errMsg := fmt.Sprintf("failed to setup hairpin mode for %v: %v", hostVethName, err)
+		logrus.Errorf(errMsg)
+		return errors.New(errMsg)
 	}
 
+	logrus.Debugf("setupVeth: successful")
 	return nil
 }
 
@@ -182,8 +194,11 @@ func setupBridge(n *NetConf) (*netlink.Bridge, error) {
 }
 
 func cmdAdd(args *skel.CmdArgs) error {
+	setupLogging()
+	logrus.Debugf("cmdAdd: %+v", args)
 	n, err := loadNetConf(args.StdinData)
 	if err != nil {
+		logrus.Errorf("Couldn't load config: %v", err)
 		return err
 	}
 
@@ -193,11 +208,13 @@ func cmdAdd(args *skel.CmdArgs) error {
 
 	br, err := setupBridge(n)
 	if err != nil {
+		logrus.Errorf("couldn't setup bridge: %v", err)
 		return err
 	}
 
 	netns, err := ns.GetNS(args.Netns)
 	if err != nil {
+		logrus.Errorf("couldn't get ns: %v", err)
 		return fmt.Errorf("failed to open netns %q: %v", args.Netns, err)
 	}
 	defer netns.Close()
@@ -215,8 +232,10 @@ func cmdAdd(args *skel.CmdArgs) error {
 	// run the IPAM plugin and get back the config to apply
 	result, err := ipam.ExecAdd(n.IPAM.Type, args.StdinData)
 	if err != nil {
+		logrus.Errorf("ipam error: %v", err)
 		return err
 	}
+	logrus.Infof("Got IP: %+v", result)
 
 	// TODO: make this optional when IPv6 is supported
 	if result.IP4 == nil {
@@ -232,16 +251,19 @@ func cmdAdd(args *skel.CmdArgs) error {
 		if n.IsDefaultGW {
 			_, defaultNet, err := net.ParseCIDR("0.0.0.0/0")
 			if err != nil {
+				logrus.Errorf("error: %v", err);
 				return err
 			}
 
 			for _, route := range result.IP4.Routes {
 				if defaultNet.String() == route.Dst.String() {
 					if route.GW != nil && !route.GW.Equal(result.IP4.Gateway) {
-						return fmt.Errorf(
+						errMsg := fmt.Sprintf(
 							"isDefaultGateway ineffective because IPAM sets default route via %q",
 							route.GW,
 						)
+						logrus.Errorf(errMsg)
+						return errors.New(errMsg)
 					}
 				}
 			}
@@ -256,6 +278,7 @@ func cmdAdd(args *skel.CmdArgs) error {
 
 		return ipam.ConfigureIface(args.IfName, result)
 	}); err != nil {
+		logrus.Errorf("error: %v", err)
 		return err
 	}
 
@@ -266,11 +289,14 @@ func cmdAdd(args *skel.CmdArgs) error {
 		}
 
 		if err = ensureBridgeAddr(br, gwn); err != nil {
+			logrus.Errorf("error: %v", err)
 			return err
 		}
 
 		if err := ip.EnableIP4Forward(); err != nil {
-			return fmt.Errorf("failed to enable forwarding: %v", err)
+			errMsg := fmt.Sprintf("failed to enable forwarding: %v", err)
+			logrus.Errorf("error: %v", errMsg)
+			return errors.New(errMsg)
 		}
 	}
 
@@ -283,10 +309,13 @@ func cmdAdd(args *skel.CmdArgs) error {
 	}
 
 	result.DNS = n.DNS
+	logrus.Infof("result: %+v", result)
 	return result.Print()
 }
 
 func cmdDel(args *skel.CmdArgs) error {
+	setupLogging()
+	logrus.Debugf("cmdDel: %+v", args)
 	n, err := loadNetConf(args.StdinData)
 	if err != nil {
 		return err
@@ -319,6 +348,18 @@ func cmdDel(args *skel.CmdArgs) error {
 	}
 
 	return nil
+}
+
+func setupLogging() {
+     logFile := "/var/log/rancher-bridge.log"
+     if logFile != "" {
+	output, err := os.OpenFile(logFile, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+         if ; err != nil {
+             logrus.Fatalf("Failed to log to file %s: %v", logFile, err)
+         }
+         logrus.SetOutput(output)
+     }
+	logrus.SetLevel(logrus.DebugLevel)
 }
 
 func main() {
