@@ -19,10 +19,10 @@ import (
 	"net"
 	"syscall"
 
-	"github.com/containernetworking/cni/pkg/ns"
-	"github.com/containernetworking/cni/pkg/skel"
-	"github.com/containernetworking/cni/pkg/testutils"
-	"github.com/containernetworking/cni/pkg/types"
+	"github.com/rancher/cni/pkg/ns"
+	"github.com/rancher/cni/pkg/skel"
+	"github.com/rancher/cni/pkg/testutils"
+	"github.com/rancher/cni/pkg/types"
 
 	"github.com/vishvananda/netlink"
 

@@ -19,7 +19,7 @@ import (
 	"io/ioutil"
 	"os"
 
-	"github.com/containernetworking/cni/pkg/types"
+	"github.com/rancher/cni/pkg/types"
 )
 
 func envCleanup() {

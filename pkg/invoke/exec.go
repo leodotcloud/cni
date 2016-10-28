@@ -21,7 +21,7 @@ import (
 	"os"
 	"os/exec"
 
-	"github.com/containernetworking/cni/pkg/types"
+	"github.com/rancher/cni/pkg/types"
 )
 
 func pluginErr(err error, output []byte) error {

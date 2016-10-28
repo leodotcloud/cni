@@ -18,9 +18,9 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/containernetworking/cni/pkg/invoke"
-	"github.com/containernetworking/cni/pkg/ip"
-	"github.com/containernetworking/cni/pkg/types"
+	"github.com/rancher/cni/pkg/invoke"
+	"github.com/rancher/cni/pkg/ip"
+	"github.com/rancher/cni/pkg/types"
 
 	"github.com/vishvananda/netlink"
 )

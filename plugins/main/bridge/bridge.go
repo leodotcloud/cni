@@ -22,17 +22,19 @@ import (
 	"runtime"
 	"syscall"
 
-	"github.com/containernetworking/cni/pkg/ip"
-	"github.com/containernetworking/cni/pkg/ipam"
-	"github.com/containernetworking/cni/pkg/ns"
-	"github.com/containernetworking/cni/pkg/skel"
-	"github.com/containernetworking/cni/pkg/types"
-	"github.com/containernetworking/cni/pkg/utils"
+	"github.com/rancher/cni/pkg/ip"
+	"github.com/rancher/cni/pkg/ipam"
+	"github.com/rancher/cni/pkg/ns"
+	"github.com/rancher/cni/pkg/skel"
+	"github.com/rancher/cni/pkg/utils"
+	"github.com/rancher/cni/pkg/types"
 	"github.com/vishvananda/netlink"
 )
 
 const defaultBrName = "cni0"
 
+// NetConf is used to hold the configuration of the network
+// for the CNI plugin
 type NetConf struct {
 	types.NetConf
 	BrName          string `json:"bridge"`
@@ -181,6 +183,26 @@ func setupBridge(n *NetConf) (*netlink.Bridge, error) {
 	return br, nil
 }
 
+func setInterfaceMacAddressIfNeeded(ifName string, res *types.Result) error {
+	if res.MAC != "" {
+		link, err := netlink.LinkByName(ifName)
+		if err != nil {
+			return fmt.Errorf("failed to lookup %q: %v", ifName, err)
+		}
+
+		hwaddr, err := net.ParseMAC(res.MAC)
+		if err != nil {
+			return fmt.Errorf("failed to parse MAC address: %v", err)
+		}
+		err = netlink.LinkSetHardwareAddr(link, hwaddr)
+		if err != nil {
+			return fmt.Errorf("failed to set hw address of interface: %v", err)
+		}
+	}
+
+	return nil
+}
+
 func cmdAdd(args *skel.CmdArgs) error {
 	n, err := loadNetConf(args.StdinData)
 	if err != nil {
@@ -253,6 +275,9 @@ func cmdAdd(args *skel.CmdArgs) error {
 
 			// TODO: IPV6
 		}
+
+		// Set the MAC address of the interface
+		setInterfaceMacAddressIfNeeded(args.IfName, result)
 
 		return ipam.ConfigureIface(args.IfName, result)
 	}); err != nil {

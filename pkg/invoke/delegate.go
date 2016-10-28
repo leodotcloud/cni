@@ -19,7 +19,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/containernetworking/cni/pkg/types"
+	"github.com/rancher/cni/pkg/types"
 )
 
 func DelegateAdd(delegatePlugin string, netconf []byte) (*types.Result, error) {

@@ -17,7 +17,7 @@ package types_test
 import (
 	"reflect"
 
-	. "github.com/containernetworking/cni/pkg/types"
+	. "github.com/rancher/cni/pkg/types"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/ginkgo/extensions/table"
